@@ -211,7 +211,7 @@ def main():
         result = analyzer.search_and_analyze(
             subreddit_name="IndianStockMarket",
             search_query="transarail",  # Optional search query
-            time_limit=365  # Days to look back
+            time_limit=365 
         )
         print(result)
             

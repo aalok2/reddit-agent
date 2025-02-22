@@ -14,7 +14,6 @@ import os
 
 class RedditAnalyzer:
     def __init__(self):
-        # Initialize Reddit API with dummy values
         self.reddit = praw.Reddit(
             client_id="your_client_id",
             client_secret="your_client_secret",
@@ -23,7 +22,6 @@ class RedditAnalyzer:
             password="your_reddit_password"
         )
         
-        # Initialize Gemini API with a dummy key
         genai.configure(api_key="your_gemini_api_key")
         self.model = genai.GenerativeModel("gemini-pro")
 

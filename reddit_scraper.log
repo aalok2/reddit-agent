@@ -1,0 +1,29 @@
+2025-02-22 16:33:10,199 - INFO - Initializing Reddit Scraper...
+2025-02-22 16:33:10,216 - DEBUG - Starting new HTTPS connection (1): pypi.org:443
+2025-02-22 16:33:10,278 - DEBUG - https://pypi.org:443 "GET /pypi/praw/json HTTP/1.1" 200 36290
+2025-02-22 16:33:10,291 - INFO - PRAW initialization successful
+2025-02-22 16:33:10,292 - INFO - Starting scrape of r/IndianStockMarket
+2025-02-22 16:33:10,292 - INFO - Successfully connected to r/IndianStockMarket
+2025-02-22 16:33:10,292 - DEBUG - Fetching: GET https://oauth.reddit.com/r/IndianStockMarket/hot at 1740222190.29232
+2025-02-22 16:33:10,292 - DEBUG - Data: None
+2025-02-22 16:33:10,292 - DEBUG - Params: {'limit': 12, 'raw_json': 1}
+2025-02-22 16:33:10,293 - DEBUG - Starting new HTTPS connection (1): www.reddit.com:443
+2025-02-22 16:33:10,789 - DEBUG - https://www.reddit.com:443 "POST /api/v1/access_token HTTP/1.1" 401 None
+2025-02-22 16:33:10,791 - ERROR - Fatal error during scraping: received 401 HTTP response
+2025-02-22 16:33:10,792 - ERROR - Main execution error: received 401 HTTP response
+2025-02-22 16:35:52,667 - INFO - Initializing Reddit Scraper...
+2025-02-22 16:35:52,670 - INFO - PRAW initialization successful
+2025-02-22 16:35:52,670 - DEBUG - Fetching: GET https://oauth.reddit.com/r/LocalLLaMA/hot at 1740222352.6707368
+2025-02-22 16:35:52,670 - DEBUG - Data: None
+2025-02-22 16:35:52,670 - DEBUG - Params: {'limit': 12, 'raw_json': 1}
+2025-02-22 16:35:52,680 - DEBUG - Starting new HTTPS connection (1): www.reddit.com:443
+2025-02-22 16:35:53,144 - DEBUG - https://www.reddit.com:443 "POST /api/v1/access_token HTTP/1.1" 401 None
+2025-02-22 16:35:53,147 - ERROR - Main execution error: received 401 HTTP response
+2025-02-22 16:47:14,706 - INFO - Initializing Reddit Scraper...
+2025-02-22 16:47:14,708 - INFO - PRAW initialization successful
+2025-02-22 16:47:14,708 - DEBUG - Fetching: GET https://oauth.reddit.com/r/LocalLLaMA/hot at 1740223034.708904
+2025-02-22 16:47:14,708 - DEBUG - Data: None
+2025-02-22 16:47:14,709 - DEBUG - Params: {'limit': 12, 'raw_json': 1}
+2025-02-22 16:47:14,718 - DEBUG - Starting new HTTPS connection (1): www.reddit.com:443
+2025-02-22 16:47:15,480 - DEBUG - https://www.reddit.com:443 "POST /api/v1/access_token HTTP/1.1" 401 None
+2025-02-22 16:47:15,482 - ERROR - Main execution error: received 401 HTTP response

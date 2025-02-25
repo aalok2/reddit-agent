@@ -1,0 +1,5 @@
+praw
+fpdf
+google-generativeai
+requests
+python-dotenv

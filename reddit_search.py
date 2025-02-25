@@ -1,171 +1,162 @@
-
 import praw
 import time
 import logging
 import sys
+import os
+import requests
 from datetime import datetime, timedelta
 from fpdf import FPDF
-import os
 from typing import Optional, Dict
 import google.generativeai as genai
+from dotenv import load_dotenv
 
-# Set up logging
+# Load environment variables from .env file
+load_dotenv()
+
 logging.basicConfig(level=logging.INFO)
 
-class RedditAnalyzer:
-    def __init__(self):
-        # Initialize Reddit API
-        self.reddit = praw.Reddit(
-            client_id="your_client_id",
-            client_secret="your_client_secret",
-            user_agent="your_user_agent",
-            username="your_reddit_username",
-            password="your_reddit_password"
-        )
-        
-        # Initialize Gemini API with a dummy key
-        genai.configure(api_key="your_gemini_api_key")
-        self.model = genai.GenerativeModel("gemini-pro")
 
-    def search_and_analyze(self, subreddit_name: str, search_query: str = None, time_limit: int = 365) -> str:
+class TelegramSender:
+    def __init__(self, token, chat_id):
+        self.token = token
+        self.chat_id = chat_id
+        self.base_url = f"https://api.telegram.org/bot{token}/"
+        
+    def send_message(self, message):
+        """Send a text message via Telegram"""
+        url = f"{self.base_url}sendMessage"
+        data = {
+            "chat_id": self.chat_id,
+            "text": message
+        }
+        response = requests.post(url, data=data)
+        return response.json()
+    
+    def send_document(self, file_path, caption=None):
+        """Send a document via Telegram"""
+        url = f"{self.base_url}sendDocument"
+        data = {
+            "chat_id": self.chat_id
+        }
+        if caption:
+            data["caption"] = caption
+            
+        with open(file_path, 'rb') as file:
+            files = {'document': file}
+            response = requests.post(url, data=data, files=files)
+        
+        return response.json()
+
+
+class RedditAnalyzer:
+    def __init__(self, telegram_token=None, telegram_chat_id=None):
+        self.reddit = praw.Reddit(
+            client_id=os.environ.get("REDDIT_CLIENT_ID"),
+            client_secret=os.environ.get("REDDIT_CLIENT_SECRET"),
+            user_agent=os.environ.get("REDDIT_USER_AGENT", "user-agent"),
+            username=os.environ.get("REDDIT_USERNAME"),
+            password=os.environ.get("REDDIT_PASSWORD"),
+        )
+
+        # Initialize Gemini
+        genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+        self.model = genai.GenerativeModel("gemini-pro")
+        
+        # Initialize Telegram sender if credentials are provided
+        self.telegram = None
+        if telegram_token and telegram_chat_id:
+            self.telegram = TelegramSender(telegram_token, telegram_chat_id)
+
+    def search_and_analyze(
+        self, subreddits: list, keywords: list, time_limit: int = 365
+    ) -> str:
         """
-        Search reddit content, analyze with Gemini model, and generate PDF report
+        Search Reddit content in multiple subreddits for multiple keywords,
+        analyze with Gemini model, and generate PDF report.
         """
         try:
             # Initialize PDF
             pdf = FPDF()
             pdf.set_auto_page_break(auto=True, margin=15)
-            
-            # Scrape Reddit data
-            subreddit = self.reddit.subreddit(subreddit_name)
             scraped_data = []
-            # one_year_ago = datetime.now() - timedelta(days=time_limit)
 
-            print(f"Searching Reddit posts in r/{subreddit_name}...")
-            
-            # Use search if query provided, otherwise get all posts
-            if search_query:
-                posts = subreddit.search(query = search_query, sort='relevance', time_filter='all')
-                print(vars(posts))
-            else:
-                posts = subreddit.new(limit=None)
+            for subreddit_name in subreddits:
+                subreddit = self.reddit.subreddit(subreddit_name)
+                print(f"Searching Reddit posts in r/{subreddit_name}...")
 
-            for post in posts:
-                print("Posts" , post.title ,  post.url )
-                post_date = datetime.fromtimestamp(post.created_utc)
-                # if post_date < one_year_ago:
-                #     continue
+                for keyword in keywords:
+                    print(f"Searching for keyword: {keyword}")
+                    posts = subreddit.search(
+                        query=keyword, sort="relevance", time_filter="day"
+                    )
 
-                post_data = {
-                    "title": post.title,
-                    "url": post.url,
-                    "date": post_date,
-                    "score": post.score,
-                    "comments": [],
-                    "content": post.selftext
-                }
+                    for post in posts:
+                        post_date = datetime.fromtimestamp(post.created_utc)
 
-                try:
-                    # post.comments.replace_more(limit=0)
-                    # comments = post.comments.list()[:5]  # Get top 5 comments
-                    # post_data["comments"] = [comment.body for comment in comments]
-                    scraped_data.append(post_data)
-                    print("data" , scraped_data)
+                        post_data = {
+                            "title": post.title,
+                            "url": post.url,
+                            "date": post_date,
+                            "score": post.score,
+                            "comments": [],
+                            "content": post.selftext,
+                        }
+
+                        scraped_data.append(post_data)
+                        print(f"Fetched post: {post.title}")
+
+            # Check if scraped_data is empty
+            if not scraped_data:
+                message = "No Reddit posts found matching the search criteria today."
+                logging.info(message)
+                
+                # Send message to Telegram if configured
+                if self.telegram:
+                    self.telegram.send_message(message)
                     
-                except Exception as e:
-                    logging.error(f"Error processing post {post.title}: {e}")
-                    continue
+                return message
 
-            # Sort posts by date (most recent first)
+            # If we have data, proceed with analysis
             scraped_data.sort(key=lambda x: x["date"], reverse=True)
-
-            # Generate PDF
-            # self._generate_pdf_report(scraped_data, search_query, subreddit_name)
-            
-            # Analyze content with Gemini
             analysis = self._analyze_content(scraped_data)
-            self._save_analysis(analysis, scraped_data)
+            report_file = self._save_analysis(analysis, scraped_data)
             
-            return "Analysis and PDF report generated successfully."
+            # Send report via Telegram if configured
+            if self.telegram:
+                self._send_report_via_telegram(report_file)
+                
+            return f"Analysis and report generated successfully: {report_file}"
 
         except Exception as e:
-            logging.error(f"Error in analysis: {e}")
+            error_msg = f"Error in analysis: {e}"
+            logging.error(error_msg)
+            
+            # Send error message to Telegram if configured
+            if self.telegram:
+                self.telegram.send_message(f"❌ Error running Reddit analysis: {str(e)}")
+                
             raise
-
-    def _generate_pdf_report(self, posts, search_query, subreddit_name):
-        pdf = FPDF()
-        pdf.set_auto_page_break(auto=True, margin=15)
-        pdf.add_page()
-        
-        # Add title
-        pdf.set_font("Arial", "B", 16)
-        title = f"Reddit Analysis Report: r/{subreddit_name}"
-        if search_query:
-            title += f" - Search: {search_query}"
-        pdf.cell(0, 10, title, ln=True, align='C')
-        
-        # Add generation date
-        pdf.set_font("Arial", "", 12)
-        pdf.cell(0, 10, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align='C')
-        pdf.ln(10)
-
-        # Add posts
-        for post in posts:
-            # Post title
-            pdf.set_font("Arial", "B", 14)
-            pdf.multi_cell(0, 10, post["title"])
-            
-            # Post metadata
-            pdf.set_font("Arial", "", 10)
-            pdf.cell(0, 5, f"Date: {post['date'].strftime('%Y-%m-%d %H:%M:%S')}", ln=True)
-            pdf.cell(0, 5, f"Score: {post['score']}", ln=True)
-            pdf.cell(0, 5, f"URL: {post['url']}", ln=True)
-            
-            # Post content
-            if post["content"]:
-                pdf.set_font("Arial", "", 12)
-                pdf.multi_cell(0, 10, post["content"][:500] + "..." if len(post["content"]) > 500 else post["content"])
-            
-            # Comments
-            if post["comments"]:
-                pdf.set_font("Arial", "B", 12)
-                pdf.cell(0, 10, "Top Comments:", ln=True)
-                pdf.set_font("Arial", "", 10)
-                for comment in post["comments"]:
-                    pdf.multi_cell(0, 5, "- " + (comment[:200] + "..." if len(comment) > 200 else comment))
-            
-            pdf.ln(10)
-            pdf.cell(0, 0, "_" * 90, ln=True)
-            pdf.ln(10)
-
-        # Save PDF
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"reddit_analysis_{subreddit_name}_{timestamp}.pdf"
-        pdf.output(filename)
 
     def _analyze_content(self, posts):
         analysis_prompt = self._prepare_analysis_prompt(posts)
         return self._get_gemini_analysis(analysis_prompt)
 
     def _prepare_analysis_prompt(self, posts):
-        prompt = """Analyze these Reddit posts and provide:
+        prompt = """
+        Analyze these Reddit posts and provide:
         1. A brief overview of the main topics
         2. Key insights from the comments
         3. Notable trends or patterns
         4. Overall sentiment analysis
-        
-        Here are the posts and comments:
         """
-        
         for post in posts:
             prompt += f"\nPOST: {post['title']}\n"
             prompt += f"DATE: {post['date']}\n"
             prompt += f"CONTENT: {post['content'][:500]}...\n"
             prompt += "COMMENTS:\n"
-            for comment in post['comments']:
+            for comment in post["comments"]:
                 prompt += f"- {comment[:200]}...\n"
             prompt += "---\n"
-        
         return prompt
 
     def _get_gemini_analysis(self, prompt):
@@ -176,49 +167,92 @@ class RedditAnalyzer:
             logging.error(f"Error during Gemini analysis: {e}")
             return "Error during analysis. Please check the logs."
 
-
     def _save_analysis(self, analysis, raw_data):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"search_{timestamp}.md"
-        
+        filename = f"reddit_analysis_{timestamp}.md"
+
         print(f"Saving analysis to {filename}...")
-        
-        with open(filename, 'w', encoding='utf-8') as f:
-            f.write("# Indian Stock Market Reddit Analysis\n\n")
-            f.write(f"Analysis Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-            
-            # Write the Gemini analysis
+
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write("# Reddit Analysis Report\n\n")
+            f.write(
+                f"Analysis Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            )
             f.write("## Analysis Summary\n\n")
             f.write(analysis)
             f.write("\n\n")
-            
-            # Write raw data in a structured format
             f.write("## Raw Data\n\n")
             for post in raw_data:
                 f.write(f"### {post['title']}\n")
                 f.write(f"[Link to post]({post['url']})\n\n")
                 f.write("#### Top Comments:\n")
-                for comment in post['comments']:
-                    f.write(f"- {comment[:500]}...\n")  # Truncate long comments
+                for comment in post["comments"]:
+                    f.write(f"- {comment[:500]}...\n")
                 f.write("\n---\n\n")
+                
+        return filename
+    
+    def _send_report_via_telegram(self, file_path):
+        """Send the generated report via Telegram and delete it afterward"""
+        if not self.telegram:
+            logging.warning("Telegram credentials not configured. Skipping send.")
+            return False
+            
+        try:
+            logging.info(f"Sending report via Telegram: {file_path} to chat ID: {self.telegram.chat_id}")
+            
+            # Send a message first
+            message_result = self.telegram.send_message(f"📊 Reddit Analysis Report - {datetime.now().strftime('%Y-%m-%d')}")
+            if not message_result.get("ok"):
+                logging.error(f"Failed to send message: {message_result}")
+                return False
+            
+            # Then send the document
+            caption = "Daily Reddit market analysis report"
+            result = self.telegram.send_document(file_path, caption)
+            
+            # Delete the file after sending
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                logging.info(f"Deleted report file: {file_path}")
+            
+            if result.get("ok"):
+                logging.info("Report sent successfully via Telegram")
+                return True
+            else:
+                logging.error(f"Failed to send report via Telegram: {result}")
+                return False
+                
+        except Exception as e:
+            logging.error(f"Error sending report via Telegram: {e}")
+            # Try to delete the file even if sending failed
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                logging.info(f"Deleted report file after error: {file_path}")
+            return False
+
 
 def main():
     print("Starting Reddit Analysis...")
-    
     try:
-        analyzer = RedditAnalyzer()
-        # Example usage with search query
+        # Get Telegram credentials from environment variables
+        telegram_token = os.environ.get("TELEGRAM_TOKEN")
+        telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+        
+        # Initialize analyzer with Telegram credentials
+        analyzer = RedditAnalyzer(telegram_token, telegram_chat_id)
+        
         result = analyzer.search_and_analyze(
-            subreddit_name="IndianStockMarket",
-            search_query="transarail",  # Optional search query
-            time_limit=365 
+            subreddits=["IndianStockMarket", "StockMarket"],
+            keywords=["KPI Green", "Gensol", "Olectra Greentech", "NDR Auto", "KP Energy", "Waaree Energies"],
+            time_limit=365,
         )
         print(result)
-            
     except Exception as e:
         print(f"Error in main execution: {e}")
         logging.error(f"Main execution error: {e}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
